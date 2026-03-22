@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "eu.ansvar/swedish-cybersecurity-mcp",
+  "description": "Query MSB (Swedish Civil Contingencies Agency) guidance, advisories, and cybersecurity frameworks",
+  "repository": {
+    "url": "https://github.com/Ansvar-Systems/swedish-cybersecurity-mcp",
+    "source": "github"
+  },
+  "homepage": "https://ansvar.eu",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "keywords": [
+    "msb",
+    "swedish-cybersecurity",
+    "cybersecurity",
+    "sweden",
+    "NIS2",
+    "mcp",
+    "ansvar"
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@ansvar/swedish-cybersecurity-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
