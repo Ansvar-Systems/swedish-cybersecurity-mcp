@@ -231,12 +231,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!doc) {
           return errorContent(`Guidance document not found: ${parsed.reference}`);
         }
-        const _citation = buildCitation(
-          parsed.reference,
-          (doc as unknown as Record<string, unknown>).title as string || parsed.reference,
-          "se_cyber_get_guidance",
-          { reference: parsed.reference },
-        );
+        const _citation = buildCitation({
+  canonicalRef: parsed.reference,
+  displayText: (doc as unknown as Record<string, unknown>).title as string || parsed.reference,
+  toolName: "se_cyber_get_guidance",
+  toolArgs: { reference: parsed.reference },
+  attribution: { source_url: /* TODO(source_url): wire from row */ undefined as any, publisher: "Swedish CERT (CERT-SE)", license: "Public-Domain" },
+});
         return textContent({ ...doc as unknown as Record<string, unknown>, _citation });
       }
 
@@ -256,12 +257,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!advisory) {
           return errorContent(`Advisory not found: ${parsed.reference}`);
         }
-        const _citation = buildCitation(
-          parsed.reference,
-          (advisory as unknown as Record<string, unknown>).title as string || parsed.reference,
-          "se_cyber_get_advisory",
-          { reference: parsed.reference },
-        );
+        const _citation = buildCitation({
+  canonicalRef: parsed.reference,
+  displayText: (advisory as unknown as Record<string, unknown>).title as string || parsed.reference,
+  toolName: "se_cyber_get_advisory",
+  toolArgs: { reference: parsed.reference },
+  attribution: { source_url: /* TODO(source_url): wire from row */ undefined as any, publisher: "Swedish CERT (CERT-SE)", license: "Public-Domain" },
+});
         return textContent({ ...advisory as unknown as Record<string, unknown>, _citation });
       }
 

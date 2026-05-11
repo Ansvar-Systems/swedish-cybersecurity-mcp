@@ -30,6 +30,23 @@ import {
   getAdvisory,
   listFrameworks,
 } from "./db.js";
+import { buildCitation } from "./utils/citation.js";
+
+// Source-attribution: this MCP currently serves only CERT-SE content (cert.se).
+// If references with prefixes other than CERT-SE (e.g., MSB, MSBFS) start being
+// ingested in the future (mcf.se is mentioned in the ingest script as future work
+// but is not yet wired), the per-item dispatch below MUST be extended to map each
+// publisher correctly. Refusing here on unknown prefixes prevents silent
+// mis-attribution per spec §No Silent Fallbacks.
+function attributionForReference(reference: string): { source_url_pattern_publisher: string; license: string } {
+  if (reference.startsWith("CERT-SE-")) {
+    return { source_url_pattern_publisher: "Swedish CERT (CERT-SE)", license: "Public-Domain" };
+  }
+  throw new Error(
+    `attribution: unknown reference prefix on '${reference}' — only CERT-SE is wired for this MCP. ` +
+      `If MSB/MSBFS/mcf.se ingestion has been added, update src/http-server.ts to dispatch per publisher.`,
+  );
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -195,7 +212,20 @@ function createMcpServer(): Server {
             status: parsed.status,
             limit: parsed.limit,
           });
-          return textContent({ results, count: results.length });
+          const annotated = results.map((item) => {
+            const attr = attributionForReference(item.reference);
+            return {
+              ...item,
+              _citation: buildCitation({
+                canonicalRef: item.reference,
+                displayText: item.title,
+                toolName: "se_cyber_get_guidance",
+                toolArgs: { reference: item.reference },
+                attribution: { source_url: item.source_url ?? "", publisher: attr.source_url_pattern_publisher, license: attr.license },
+              }),
+            };
+          });
+          return textContent({ results: annotated, count: annotated.length });
         }
 
         case "se_cyber_get_guidance": {
@@ -204,7 +234,17 @@ function createMcpServer(): Server {
           if (!doc) {
             return errorContent(`Guidance document not found: ${parsed.reference}`);
           }
-          return textContent(doc);
+          const attr = attributionForReference(doc.reference);
+          return textContent({
+            ...doc,
+            _citation: buildCitation({
+              canonicalRef: doc.reference,
+              displayText: doc.title,
+              toolName: "se_cyber_get_guidance",
+              toolArgs: { reference: parsed.reference },
+              attribution: { source_url: doc.source_url ?? "", publisher: attr.source_url_pattern_publisher, license: attr.license },
+            }),
+          });
         }
 
         case "se_cyber_search_advisories": {
@@ -214,7 +254,20 @@ function createMcpServer(): Server {
             severity: parsed.severity,
             limit: parsed.limit,
           });
-          return textContent({ results, count: results.length });
+          const annotated = results.map((item) => {
+            const attr = attributionForReference(item.reference);
+            return {
+              ...item,
+              _citation: buildCitation({
+                canonicalRef: item.reference,
+                displayText: item.title,
+                toolName: "se_cyber_get_advisory",
+                toolArgs: { reference: item.reference },
+                attribution: { source_url: item.source_url ?? "", publisher: attr.source_url_pattern_publisher, license: attr.license },
+              }),
+            };
+          });
+          return textContent({ results: annotated, count: annotated.length });
         }
 
         case "se_cyber_get_advisory": {
@@ -223,7 +276,17 @@ function createMcpServer(): Server {
           if (!advisory) {
             return errorContent(`Advisory not found: ${parsed.reference}`);
           }
-          return textContent(advisory);
+          const attr = attributionForReference(advisory.reference);
+          return textContent({
+            ...advisory,
+            _citation: buildCitation({
+              canonicalRef: advisory.reference,
+              displayText: advisory.title,
+              toolName: "se_cyber_get_advisory",
+              toolArgs: { reference: parsed.reference },
+              attribution: { source_url: advisory.source_url ?? "", publisher: attr.source_url_pattern_publisher, license: attr.license },
+            }),
+          });
         }
 
         case "se_cyber_list_frameworks": {

@@ -1,153 +1,144 @@
 /**
- * Citation metadata for the deterministic citation pipeline.
+ * Citation utilities for cyber-cohort MCPs.
  *
- * Provides structured identifiers (canonical_ref, display_text, aliases)
- * that the platform's entity linker uses to match references in agent
- * responses to MCP tool results — without relying on LLM formatting.
+ * v2 — options-object signatures with mandatory attribution triple per
+ * docs/superpowers/specs/2026-05-02-source-attribution-airtight-design.md.
  *
- * This is the UNIVERSAL template — works for all MCP types (law, sector,
- * agriculture, domain). Each MCP adapts the builder call to its own
- * field names.
+ * The attribution triple (source_url, publisher, license) is load-bearing.
+ * Every CitationMetadata produced by this module has all three populated.
  *
- * See: docs/guides/law-mcp-golden-standard.md Section 4.9c
+ * Replaces v1 positional signatures. The breaking signature change is
+ * deliberate — `tsc --noEmit` fails any caller that has not migrated.
+ *
+ * Note on naming: this file's `CitationMetadata` is structurally distinct from
+ * the `CitationMetadata` interface in `infrastructure/law-mcp-templates/`. The
+ * law-cohort version omits attribution fields and predates the Source
+ * Attribution Airtight standard. The two templates target different cohorts —
+ * this file is copied into cyber-cohort MCPs; the law-cohort template stays
+ * with law MCPs. They never coexist inside a single deployed repo.
  */
+
+export interface AttributionTriple {
+  source_url: string;
+  publisher: string;
+  license: string;
+  attribution_text?: string;
+}
+
+// `toolArgs` values must be pre-stringified by the caller. Numeric/boolean values must be wrapped with `String(...)` before being passed in. This narrowness matches the existing law-cohort templates and the gateway's lookup-arg shape.
+export interface CitationOptions {
+  canonicalRef: string;
+  displayText: string;
+  toolName: string;
+  toolArgs: Record<string, string>;
+  attribution: AttributionTriple;
+  aliases?: string[];
+}
 
 export interface CitationMetadata {
   canonical_ref: string;
   display_text: string;
   aliases?: string[];
-  source_url?: string;
-  lookup: {
-    tool: string;
-    args: Record<string, string>;
-  };
+  lookup: { tool: string; args: Record<string, string> };
+  source_url: string;
+  publisher: string;
+  license: string;
+  attribution_text?: string;
 }
 
-/**
- * Build citation metadata for any retrieval tool response.
- *
- * @param canonicalRef  Primary reference the entity linker matches against
- *                      (e.g., "SFS 2018:218", "GDPR Article 33", "CVE-2024-1234")
- * @param displayText   How the reference appears in prose
- *                      (e.g., "34 § SFS 2018:218", "Article 33 of GDPR")
- * @param toolName      The MCP tool name (e.g., "get_provision", "get_article")
- * @param toolArgs      The tool arguments for verification lookup
- * @param sourceUrl     Official portal URL (optional)
- * @param aliases       Alternative names the LLM might use (optional)
- */
-export function buildCitation(
-  canonicalRef: string,
-  displayText: string,
-  toolName: string,
-  toolArgs: Record<string, string>,
-  sourceUrl?: string | null,
-  aliases?: string[],
-): CitationMetadata {
-  return {
-    canonical_ref: canonicalRef,
-    display_text: displayText,
-    ...(aliases && aliases.length > 0 && { aliases }),
-    ...(sourceUrl && { source_url: sourceUrl }),
-    lookup: {
-      tool: toolName,
-      args: toolArgs,
-    },
+export function buildCitation(opts: CitationOptions): CitationMetadata {
+  if (!opts.attribution.source_url) {
+    throw new Error("buildCitation: attribution.source_url is required and must be non-empty");
+  }
+  if (!opts.attribution.publisher) {
+    throw new Error("buildCitation: attribution.publisher is required and must be non-empty");
+  }
+  if (!opts.attribution.license) {
+    throw new Error("buildCitation: attribution.license is required and must be non-empty");
+  }
+  const meta: CitationMetadata = {
+    canonical_ref: opts.canonicalRef,
+    display_text: opts.displayText,
+    lookup: { tool: opts.toolName, args: opts.toolArgs },
+    source_url: opts.attribution.source_url,
+    publisher: opts.attribution.publisher,
+    license: opts.attribution.license,
   };
+  if (opts.aliases && opts.aliases.length > 0) {
+    meta.aliases = opts.aliases;
+  }
+  if (opts.attribution.attribution_text) {
+    meta.attribution_text = opts.attribution.attribution_text;
+  }
+  return meta;
 }
 
-/**
- * Build citation metadata for a law MCP get_provision response.
- *
- * Handles Swedish-style YYYY:NNN statute IDs, chapter:section notation,
- * and short-name aliases. Other jurisdictions adapt field names.
- *
- * @param documentId     DB identifier (e.g., "2018:218", "LOV-2018-06-15-38")
- * @param documentTitle  Full title of the law
- * @param provisionRef   Provision reference (e.g., "34", "3:12")
- * @param inputDocId     The document_id argument as passed by the caller
- * @param inputSection   The section argument as passed by the caller
- * @param sourceUrl      Official portal URL (optional)
- * @param shortName      Short name / alias (optional)
- */
-export function buildProvisionCitation(
-  documentId: string,
-  documentTitle: string,
-  provisionRef: string,
-  inputDocId: string,
-  inputSection: string,
-  sourceUrl?: string | null,
-  shortName?: string | null,
-): CitationMetadata {
-  // Build canonical_ref — detect common statute ID formats
+export interface ProvisionCitationOptions {
+  documentId: string;
+  documentTitle: string;
+  provisionRef: string;
+  inputDocId: string;
+  inputSection: string;
+  attribution: AttributionTriple;
+  shortName?: string | null;
+}
+
+export function buildProvisionCitation(opts: ProvisionCitationOptions): CitationMetadata {
+  // attribution is validated inside buildCitation when this function delegates at the bottom; no need to validate here.
+  // SFS (Swedish) and LOV- (Norwegian) prefix detection are law-cohort-specific. Cyber-cohort callers fall through to the default branch (canonicalRef = documentTitle || documentId). buildProvisionCitation is included in this template for parity with the law-cohort utility, but the cyber cohort primarily calls buildCitation and buildRegulationCitation directly.
   let canonicalRef: string;
-  if (documentId.match(/^\d{4}:\d+$/)) {
-    // Swedish SFS format: "2018:218" → "SFS 2018:218"
-    canonicalRef = `SFS ${documentId}`;
-  } else if (documentId.match(/^LOV-\d{4}/)) {
-    // Norwegian Lovdata format
-    canonicalRef = documentId;
+  if (opts.documentId.match(/^\d{4}:\d+$/)) {
+    canonicalRef = `SFS ${opts.documentId}`;
+  } else if (opts.documentId.match(/^LOV-\d{4}/)) {
+    canonicalRef = opts.documentId;
   } else {
-    canonicalRef = documentTitle || documentId;
+    canonicalRef = opts.documentTitle || opts.documentId;
   }
 
-  // Build display_text with provision reference
   let displayText: string;
-  if (provisionRef && provisionRef.includes(':')) {
-    // Chapter:section format (e.g., "3:12" → "3 kap. 12 §")
-    const [ch, sec] = provisionRef.split(':');
+  if (opts.provisionRef && opts.provisionRef.includes(":")) {
+    const [ch, sec] = opts.provisionRef.split(":");
     displayText = `${ch} kap. ${sec} § ${canonicalRef}`;
-  } else if (provisionRef) {
-    displayText = `§ ${provisionRef} ${canonicalRef}`;
+  } else if (opts.provisionRef) {
+    displayText = `§ ${opts.provisionRef} ${canonicalRef}`;
   } else {
     displayText = canonicalRef;
   }
 
-  // Build aliases
   const aliases: string[] = [];
-  if (shortName) aliases.push(shortName);
-  if (documentId !== canonicalRef) aliases.push(documentId);
-  if (documentTitle && documentTitle !== canonicalRef) aliases.push(documentTitle);
+  if (opts.shortName) aliases.push(opts.shortName);
+  if (opts.documentId !== canonicalRef) aliases.push(opts.documentId);
+  if (opts.documentTitle && opts.documentTitle !== canonicalRef) aliases.push(opts.documentTitle);
 
-  return {
-    canonical_ref: canonicalRef,
-    display_text: displayText,
+  return buildCitation({
+    canonicalRef,
+    displayText,
+    toolName: "get_provision",
+    toolArgs: { document_id: opts.inputDocId, section: opts.inputSection },
+    attribution: opts.attribution,
     ...(aliases.length > 0 && { aliases }),
-    ...(sourceUrl && { source_url: sourceUrl }),
-    lookup: {
-      tool: 'get_provision',
-      args: { document_id: inputDocId, section: inputSection },
-    },
-  };
+  });
 }
 
-/**
- * Build citation for a sector regulator decision/regulation.
- *
- * @param reference      Decision/regulation reference (e.g., "FFFS 2024:1")
- * @param title          Full title
- * @param toolName       Tool name (e.g., "se_dp_get_decision")
- * @param toolArgs       Tool arguments
- * @param authority      Issuing authority (e.g., "IMY", "FI")
- * @param sourceUrl      Official URL (optional)
- */
-export function buildRegulationCitation(
-  reference: string,
-  title: string,
-  toolName: string,
-  toolArgs: Record<string, string>,
-  authority?: string | null,
-  sourceUrl?: string | null,
-): CitationMetadata {
-  const canonicalRef = reference;
-  const displayText = title || reference;
-  const aliases: string[] = [];
-  if (authority) aliases.push(`${authority}: ${reference}`);
+export interface RegulationCitationOptions {
+  reference: string;
+  title: string;
+  toolName: string;
+  toolArgs: Record<string, string>;
+  attribution: AttributionTriple;
+  authority?: string | null;
+}
 
-  return {
-    canonical_ref: canonicalRef,
-    display_text: displayText,
+export function buildRegulationCitation(opts: RegulationCitationOptions): CitationMetadata {
+  const aliases: string[] = [];
+  if (opts.authority) aliases.push(`${opts.authority}: ${opts.reference}`);
+
+  return buildCitation({
+    canonicalRef: opts.reference,
+    displayText: opts.title || opts.reference,
+    toolName: opts.toolName,
+    toolArgs: opts.toolArgs,
+    attribution: opts.attribution,
     ...(aliases.length > 0 && { aliases }),
-    ...(sourceUrl && { source_url: sourceUrl }),
-    lookup: { tool: toolName, args: toolArgs },
-  };
+  });
 }
