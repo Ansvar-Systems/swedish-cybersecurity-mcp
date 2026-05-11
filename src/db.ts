@@ -10,6 +10,8 @@
  */
 
 import Database from "better-sqlite3";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 const DB_PATH = process.env["MSB_DB_PATH"] ?? "data/msb.db";
 
@@ -25,7 +27,8 @@ CREATE TABLE IF NOT EXISTS guidance (
   summary    TEXT,
   full_text  TEXT    NOT NULL,
   topics     TEXT,
-  status     TEXT    DEFAULT 'current'
+  status     TEXT    DEFAULT 'current',
+  source_url TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_guidance_date   ON guidance(date);
@@ -65,7 +68,8 @@ CREATE TABLE IF NOT EXISTS advisories (
   affected_products TEXT,
   summary           TEXT,
   full_text         TEXT    NOT NULL,
-  cve_references    TEXT
+  cve_references    TEXT,
+  source_url TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_advisories_date     ON advisories(date);
@@ -117,6 +121,7 @@ export interface Guidance {
   full_text: string;
   topics: string | null;
   status: string;
+  source_url: string | null;
 }
 
 export interface Advisory {
@@ -129,6 +134,7 @@ export interface Advisory {
   summary: string | null;
   full_text: string;
   cve_references: string | null;
+  source_url: string | null;
 }
 
 export interface Framework {
@@ -145,13 +151,17 @@ let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (_db) return _db;
-  // Read-only: DB is baked into the image at build time (publish-ghcr.yml
-  // Release-provisioning per the db_release_path manifest pattern). Runtime
-  // never writes. Container rootfs will be read_only:true per the future
-  // mcp-defaults compose anchor; opening write-mode + setting WAL + execing
-  // CREATE TABLE IF NOT EXISTS would fail with "unable to open database
-  // file". Schema is exported for offline ingestion scripts.
-  _db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+
+  const dir = dirname(DB_PATH);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  _db = new Database(DB_PATH);
+  _db.pragma("journal_mode = WAL");
+  _db.pragma("foreign_keys = ON");
+  _db.exec(SCHEMA_SQL);
+
   return _db;
 }
 
